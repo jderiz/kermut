@@ -1,6 +1,8 @@
 .idea
 .vscode
 .ruff_cache
+.venv
+.cursorignore
 
 **/*.egg-info
 **/*.pyc

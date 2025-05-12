@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 @hydra.main(
     version_base=None,
-    config_path="../hydra_configs",
+    config_path="../../hydra_configs",
     config_name="benchmark",
 )
 def extract_3d_coords(cfg: DictConfig) -> None:

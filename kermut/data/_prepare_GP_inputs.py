@@ -31,7 +31,7 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
     if not cfg.kernel.use_sequence_kernel:
         return None
 
-    if cfg.cv_scheme in ["fold_rand_multiples", "domain"]:
+    if cfg.cv_scheme in ["fold_rand_multiples", "domain", "full"]:
         embedding_path = Path(cfg.data.paths.embeddings_multiples) / f"{DMS_id}.h5"
     else:
         embedding_path = Path(cfg.data.paths.embeddings_singles) / f"{DMS_id}.h5"
@@ -43,9 +43,11 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
     tries = 0
     while tries < 10:
         try:
+            print(f"Loading embeddings from {embedding_path}")
             with h5py.File(embedding_path, "r", locking=True) as h5f:
-                embeddings = torch.tensor(h5f["embeddings"][:]).float()
-                mutants = [x.decode("utf-8") for x in h5f["mutants"][:]]
+                embeddings = torch.tensor(h5f["embeddings"][1:]).float()
+                print(h5f.keys())
+                mutants = [x.decode("utf-8") for x in h5f["mutants"][1:]]
             break
         except OSError:
             tries += 1
@@ -56,13 +58,20 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
     if embeddings.ndim == 3:
         embeddings = embeddings.mean(dim=1)
 
-    # Keep entries that are in the dataset
-    keep = [x in df["mutant"].tolist() for x in mutants]
-    embeddings = embeddings[keep]
-    mutants = np.array(mutants)[keep]
-    # Ensures matching ordering
-    idx = [df["mutant"].tolist().index(x) for x in mutants]
-    embeddings = embeddings[idx]
+    # Create a mapping from mutant to index in the embeddings array
+    mutant_to_idx = {mut: idx for idx, mut in enumerate(mutants)}
+    
+    # Get indices for mutants that exist in both the dataset and embeddings
+    valid_indices = []
+    for mut in df["mutant"].tolist():
+        if mut in mutant_to_idx:
+            valid_indices.append(mutant_to_idx[mut])
+        else:
+            print(f"Warning: Mutant {mut} not found in embeddings")
+    
+    # Filter embeddings using valid indices
+    embeddings = embeddings[valid_indices]
+    
     return embeddings
 
 

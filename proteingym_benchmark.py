@@ -22,7 +22,47 @@ def _evaluate_single_dms(cfg: DictConfig, DMS_id: str, target_seq: str) -> None:
 
         df_out = df[["mutant"]].copy()
         df_out = df_out.assign(fold=np.nan, y=np.nan, y_pred=np.nan, y_var=np.nan)
+        
+        if cfg.data.no_cv:
+            # Train on entire dataset without CV
+            torch.manual_seed(cfg.seed)
+            np.random.seed(cfg.seed)
 
+            y_train = y
+            print("standardizing")
+            if cfg.data.standardize:
+                device = y_train.device
+                y_train = standardize(y_train, torch.tensor([1], device=device))[0]
+            else:
+                y_train = y_train
+
+            train_inputs = (x_toks, x_embed, x_zero_shot)
+            train_targets = y_train
+            print("instantiating gp")
+            gp, likelihood = instantiate_gp(
+                cfg=cfg, train_inputs=train_inputs, train_targets=train_targets, gp_inputs=gp_inputs
+            )
+            print("optimizing gp")
+            gp, likelihood = optimize_gp(
+                gp=gp,
+                likelihood=likelihood,
+                train_inputs=train_inputs,
+                train_targets=train_targets,
+                lr=cfg.optim.lr,
+                n_steps=cfg.optim.n_steps,
+                progress_bar=cfg.optim.progress_bar,
+            )
+
+            # Save model and likelihood
+            model_dir = Path(cfg.data.paths.output_folder) / "models" / cfg.kernel.name
+            model_dir.mkdir(parents=True, exist_ok=True)
+            gp.save_model(str(model_dir / f'{DMS_id}_gp.pth'))
+            likelihood.save_model(str(model_dir / f'{DMS_id}_likelihood.pth'))
+            
+            print(f"Model saved for {DMS_id} (no CV mode)")
+            return
+
+        # CV mode - existing code
         unique_folds = (
             df[cfg.cv_scheme].unique() if cfg.data.test_index == -1 else [cfg.data.test_index]
         )
@@ -98,6 +138,7 @@ def main(cfg: DictConfig) -> None:
     for i, (DMS_id, target_seq) in enumerate(df_ref.itertuples(index=False)):
         print(f"--- ({i+1}/{len(df_ref)}) {DMS_id} ---", flush=True)
         _evaluate_single_dms(cfg, DMS_id, target_seq)
+        exit()
 
 
 if __name__ == "__main__":

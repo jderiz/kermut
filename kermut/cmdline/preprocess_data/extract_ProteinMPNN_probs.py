@@ -33,7 +33,7 @@ def _filter_datasets(cfg: DictConfig) -> pd.DataFrame:
 
 @hydra.main(
     version_base=None,
-    config_path="../hydra_configs",
+    config_path="../../hydra_configs",
     config_name="benchmark",
 )
 def extract_ProteinMPNN_probs(cfg: DictConfig) -> None:
@@ -60,6 +60,7 @@ def extract_ProteinMPNN_probs(cfg: DictConfig) -> None:
                     / UniProt_ID
                     / f"proteinmpnn/conditional_probs_only/{UniProt_ID}.npz"
                 )
+                print(file_path)
                 # Load and unpack
                 raw_file = np.load(file_path)
                 log_p = raw_file["log_p"]
@@ -72,6 +73,7 @@ def extract_ProteinMPNN_probs(cfg: DictConfig) -> None:
 
                 # Load sequence from ProteinMPNN outputs
                 wt_seq_from_toks = "".join([proteinmpnn_tok_to_aa[tok] for tok in wt_toks])
+                print(wt_seq_from_toks)
 
                 # Mismatch between WT and PDB
                 if DMS_id == "CAS9_STRP1_Spencer_2017_positive":

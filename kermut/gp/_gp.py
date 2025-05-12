@@ -67,6 +67,38 @@ class KermutGP(ExactGP):
         else:
             self.mean_module = ConstantMean()
 
+    def _apply(self, fn):
+        """Override _apply to handle device transfer correctly.
+        
+        This method ensures that train_inputs and train_targets are moved to the new device
+        by applying the device transfer function to each tensor in the tuples, while preventing
+        the parent class from trying to move them again.
+        """
+        # Store original attributes
+        original_train_inputs = self.train_inputs
+        original_train_targets = self.train_targets
+        
+        # Temporarily remove train_inputs and train_targets to prevent parent from moving them
+        self.train_inputs = None
+        self.train_targets = None
+        
+        # Call parent's _apply to move model parameters
+        super()._apply(fn)
+        
+        # Restore train_inputs and train_targets and move them to the new device
+        if isinstance(original_train_inputs, tuple):
+            self.train_inputs = tuple(fn(x) for x in original_train_inputs)
+        else:
+            self.train_inputs = fn(original_train_inputs)
+            
+        # Ensure train_targets is always a tensor, not a tuple
+        if isinstance(original_train_targets, tuple):
+            self.train_targets = fn(original_train_targets[0])  # Take first element if it's a tuple
+        else:
+            self.train_targets = fn(original_train_targets)
+        
+        return self
+
     def forward(self, x_toks, x_embed, x_zero=None) -> MultivariateNormal:
         if x_zero is None:
             x_zero = x_toks

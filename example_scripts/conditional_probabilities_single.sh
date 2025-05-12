@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Specify path to ProteinMPNN installation 
-protein_mpnn_dir=$PROTEINMPNN_DIR
+# Specify path to ProteinMPNN  
+protein_mpnn_dir=/home/iwe7/haipr/haipr/models/ProteinMPNN
 
 # Majority of assays
-DATASET=TCRG1_MOUSE
+DATASET=GB1
 path_to_PDB="data/structures/pdbs/${DATASET}.pdb"
 output_dir="data/conditional_probs/raw_ProteinMPNN_outputs/${DATASET}/proteinmpnn"
 

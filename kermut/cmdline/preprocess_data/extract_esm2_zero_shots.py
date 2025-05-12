@@ -8,9 +8,13 @@ import torch
 from esm import pretrained
 from omegaconf import DictConfig
 from tqdm import tqdm
+import argparse
 
+torch.serialization.add_safe_globals([argparse.Namespace])
 
 def _label_row(row, sequence, token_probs, alphabet, offset_idx):
+    if pd.isna(row) or not row:
+        return 0  # no mutations or NaN
     mutations = row.split(":")
     score = 0
     for mutation in mutations:
@@ -52,11 +56,12 @@ def _filter_datasets(cfg: DictConfig) -> pd.DataFrame:
 
 @hydra.main(
     version_base=None,
-    config_path="../hydra_configs",
+    config_path="../../hydra_configs",
     config_name="benchmark",
 )
 def extract_esm2_zero_shots(cfg: DictConfig) -> None:
     df_ref = _filter_datasets(cfg)
+    print(df_ref.columns)
     DMS_dir = Path(cfg.data.paths.DMS_input_folder)
     score_key = "esm2_t33_650M_UR50D"
 
@@ -79,7 +84,7 @@ def extract_esm2_zero_shots(cfg: DictConfig) -> None:
         if (
             df_ref_dms["includes_multiple_mutants"]
             and df_ref_dms["DMS_total_number_mutants"] <= 7500
-        ):
+        ) or (cfg.data.embedding.mode == "multiples"):
             file_in = DMS_dir / "cv_folds_multiples_substitutions" / f"{DMS_id}.csv"
         else:
             file_in = DMS_dir / "cv_folds_singles_substitutions" / f"{DMS_id}.csv"
@@ -88,7 +93,7 @@ def extract_esm2_zero_shots(cfg: DictConfig) -> None:
 
         batch_converter = alphabet.get_batch_converter()
         data = [
-            ("protein1", df_ref_dms["target_sequence"]),
+            ("protein1", df_ref_dms["target_seq"]),
         ]
         _, _, batch_tokens = batch_converter(data)
 
@@ -104,8 +109,8 @@ def extract_esm2_zero_shots(cfg: DictConfig) -> None:
         token_probs = torch.cat(all_token_probs, dim=0).unsqueeze(0)
         df[score_key] = df.apply(
             lambda row: _label_row(
-                row["mutations"],
-                df_ref_dms["target_sequence"],
+                row["mutant"],
+                df_ref_dms["target_seq"],
                 token_probs,
                 alphabet,
                 1,

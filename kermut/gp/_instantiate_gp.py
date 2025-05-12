@@ -58,7 +58,7 @@ def instantiate_gp(
         **gp_inputs,
     )
     if cfg.use_gpu and torch.cuda.is_available():
-        gp = gp.cuda()
+        gp = gp.to("cuda")
         likelihood = likelihood.cuda()
 
     return gp, likelihood

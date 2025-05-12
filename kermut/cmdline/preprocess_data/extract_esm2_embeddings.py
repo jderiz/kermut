@@ -1,16 +1,20 @@
 """Script to extract ESM-2 embeddings for ProteinGym DMS assays.
 Adapted from https://github.com/facebookresearch/esm/blob/main/scripts/extract.py"""
 
+import argparse
 from pathlib import Path
 
 import h5py
 import hydra
 import pandas as pd
 import torch
+import numpy as np
 from esm import FastaBatchedDataset, pretrained
 from omegaconf import DictConfig
 from tqdm import tqdm
+import argparse
 
+torch.serialization.add_safe_globals([argparse.Namespace])
 
 def _filter_datasets(cfg: DictConfig, embedding_dir: Path) -> pd.DataFrame:
     df_ref = pd.read_csv(cfg.data.paths.reference_file)
@@ -40,7 +44,7 @@ def _filter_datasets(cfg: DictConfig, embedding_dir: Path) -> pd.DataFrame:
 
 @hydra.main(
     version_base=None,
-    config_path="../hydra_configs",
+    config_path="../../hydra_configs",
     config_name="benchmark",
 )
 def extract_esm2_embeddings(cfg: DictConfig) -> None:
@@ -74,6 +78,9 @@ def extract_esm2_embeddings(cfg: DictConfig) -> None:
         df = pd.read_csv(DMS_dir / f"{DMS_id}.csv")
 
         mutants = df["mutant"].tolist()
+        # check types of mutants
+        print(type(mutants[0]), type(mutants[1]))
+        mutants = ["" if pd.isna(m) else m for m in mutants]
         sequences = df["mutated_sequence"].tolist()
         batched_dataset = FastaBatchedDataset(sequence_strs=sequences, sequence_labels=mutants)
 
@@ -112,6 +119,7 @@ def extract_esm2_embeddings(cfg: DictConfig) -> None:
             "embeddings": all_representations,
             "mutants": mutants,
         }
+        print(embeddings_dict.keys())
 
         # Store data as HDF5
         with h5py.File(embedding_dir / f"{DMS_id}.h5", "w") as h5f:

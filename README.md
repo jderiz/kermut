@@ -55,7 +55,7 @@ curl -o data/DMS_substitutions.csv https://raw.githubusercontent.com/OATML-Marks
 - __Assay data__: All assays (with CV folds) can be downloaded and extracted to `data`. Run the following to download and extract all single-mutant assays. Assays will be placed in `data/cv_folds_singles_substitutions`:
 ```bash
 # Download zip archive
-curl -o cv_folds_singles_substitutions.zip https://marks.hms.harvard.edu/proteingym/cv_folds_singles_substitutions.zip
+curl -o cv_folds_singles_substitutions.zip https://marks.hms.harvard.edu/ProteinGym_v1.3/cv_folds_singles_substitutions.zip
 # Unpack and remove zip archive
 unzip cv_folds_singles_substitutions.zip -d data
 rm cv_folds_singles_substitutions.zip
