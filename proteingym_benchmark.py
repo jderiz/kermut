@@ -13,34 +13,59 @@ from kermut.data import (
     standardize,
 )
 from kermut.gp import instantiate_gp, optimize_gp, predict
+from kermut.gp._optimize_gp_svi import optimize_gp as optimize_gp_svi
 
 
 def _evaluate_single_dms(cfg: DictConfig, DMS_id: str, target_seq: str) -> None:
-    try:
-        df, y, x_toks, x_embed, x_zero_shot = prepare_GP_inputs(cfg, DMS_id)
-        gp_inputs = prepare_GP_kwargs(cfg, DMS_id, target_seq)
+    df, y, x_toks, x_embed, x_zero_shot = prepare_GP_inputs(cfg, DMS_id)
+    gp_inputs = prepare_GP_kwargs(cfg, DMS_id, target_seq)
 
-        df_out = df[["mutant"]].copy()
-        df_out = df_out.assign(fold=np.nan, y=np.nan, y_pred=np.nan, y_var=np.nan)
-        
-        if cfg.data.no_cv:
-            # Train on entire dataset without CV
-            torch.manual_seed(cfg.seed)
-            np.random.seed(cfg.seed)
+    df_out = df[["mutant"]].copy()
+    df_out = df_out.assign(fold=np.nan, y=np.nan, y_pred=np.nan, y_var=np.nan)
 
-            y_train = y
-            print("standardizing")
-            if cfg.data.standardize:
-                device = y_train.device
-                y_train = standardize(y_train, torch.tensor([1], device=device))[0]
-            else:
-                y_train = y_train
+    if cfg.data.no_cv:
+        # Train on entire dataset without CV
+        torch.manual_seed(cfg.seed)
+        np.random.seed(cfg.seed)
 
-            train_inputs = (x_toks, x_embed, x_zero_shot)
-            train_targets = y_train
+        y_train = y
+        print("standardizing")
+        if cfg.data.standardize:
+            device = y_train.device
+            y_train = standardize(y_train, torch.tensor([1], device=device))[0]
+        else:
+            y_train = y_train
+
+        print("x_toks shape: ", x_toks.shape)
+        print("x_embed shape: ", x_embed.shape)
+        print("x_zero_shot shape: ", x_zero_shot.shape)
+        print("y_train shape: ", y_train.shape)
+        train_inputs = (x_toks, x_embed, x_zero_shot)
+        train_targets = y_train
+
+        if cfg.optim.use_svi:
+            print("Using SVI optimization")
+            gp, likelihood = optimize_gp_svi(
+                train_inputs=train_inputs,
+                train_targets=train_targets,
+                kernel_cfg=cfg.kernel,
+                gp_inputs=gp_inputs,
+                n_inducing=cfg.optim.n_inducing,
+                lr=cfg.optim.lr,
+                n_steps=cfg.optim.n_steps,
+                batch_size=cfg.optim.batch_size,
+                use_zero_shot_mean=cfg.kernel.use_zero_shot,
+                composite=True,
+                progress_bar=cfg.optim.progress_bar,
+            )
+        else:
+            print("Using exact GP optimization")
             print("instantiating gp")
             gp, likelihood = instantiate_gp(
-                cfg=cfg, train_inputs=train_inputs, train_targets=train_targets, gp_inputs=gp_inputs
+                cfg=cfg,
+                train_inputs=train_inputs,
+                train_targets=train_targets,
+                gp_inputs=gp_inputs,
             )
             print("optimizing gp")
             gp, likelihood = optimize_gp(
@@ -52,77 +77,74 @@ def _evaluate_single_dms(cfg: DictConfig, DMS_id: str, target_seq: str) -> None:
                 n_steps=cfg.optim.n_steps,
                 progress_bar=cfg.optim.progress_bar,
             )
+        print("done optimizing gp")
 
-            # Save model and likelihood
-            model_dir = Path(cfg.data.paths.output_folder) / "models" / cfg.kernel.name
-            model_dir.mkdir(parents=True, exist_ok=True)
-            gp.save_model(str(model_dir / f'{DMS_id}_gp.pth'))
-            likelihood.save_model(str(model_dir / f'{DMS_id}_likelihood.pth'))
-            
-            print(f"Model saved for {DMS_id} (no CV mode)")
-            return
+        # Save model and likelihood
+        model_dir = Path(cfg.data.paths.output_folder) / "models" / cfg.kernel.name / DMS_id
+        model_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(gp.state_dict(), str(model_dir / "gp.pth"))
+        torch.save(likelihood.state_dict(), str(model_dir / "likelihood.pth"))
 
-        # CV mode - existing code
-        unique_folds = (
-            df[cfg.cv_scheme].unique() if cfg.data.test_index == -1 else [cfg.data.test_index]
+        print(f"Model saved for {DMS_id} (no CV mode)")
+        return
+
+    # CV mode - existing code
+    unique_folds = (
+        df[cfg.cv_scheme].unique() if cfg.data.test_index == -1 else [cfg.data.test_index]
+    )
+    for test_fold in unique_folds:
+        torch.manual_seed(cfg.seed)
+        np.random.seed(cfg.seed)
+
+        train_idx = (df[cfg.cv_scheme] != test_fold).tolist()
+        test_idx = (df[cfg.cv_scheme] == test_fold).tolist()
+
+        y_train, y_test = split_inputs(train_idx, test_idx, y)
+        y_train, y_test = (
+            standardize(y_train, y_test) if cfg.data.standardize else (y_train, y_test)
         )
-        for test_fold in unique_folds:
-            torch.manual_seed(cfg.seed)
-            np.random.seed(cfg.seed)
 
-            train_idx = (df[cfg.cv_scheme] != test_fold).tolist()
-            test_idx = (df[cfg.cv_scheme] == test_fold).tolist()
+        x_toks_train, x_toks_test = split_inputs(train_idx, test_idx, x_toks)
+        x_embed_train, x_embed_test = split_inputs(train_idx, test_idx, x_embed)
+        x_zero_shot_train, x_zero_shot_test = split_inputs(train_idx, test_idx, x_zero_shot)
 
-            y_train, y_test = split_inputs(train_idx, test_idx, y)
-            y_train, y_test = (
-                standardize(y_train, y_test) if cfg.data.standardize else (y_train, y_test)
-            )
+        train_inputs = (x_toks_train, x_embed_train, x_zero_shot_train)
+        test_inputs = (x_toks_test, x_embed_test, x_zero_shot_test)
+        train_targets = y_train
+        test_targets = y_test
 
-            x_toks_train, x_toks_test = split_inputs(train_idx, test_idx, x_toks)
-            x_embed_train, x_embed_test = split_inputs(train_idx, test_idx, x_embed)
-            x_zero_shot_train, x_zero_shot_test = split_inputs(train_idx, test_idx, x_zero_shot)
-
-            train_inputs = (x_toks_train, x_embed_train, x_zero_shot_train)
-            test_inputs = (x_toks_test, x_embed_test, x_zero_shot_test)
-            train_targets = y_train
-            test_targets = y_test
-
-            gp, likelihood = instantiate_gp(
-                cfg=cfg, train_inputs=train_inputs, train_targets=train_targets, gp_inputs=gp_inputs
-            )
-
-            gp, likelihood = optimize_gp(
-                gp=gp,
-                likelihood=likelihood,
-                train_inputs=train_inputs,
-                train_targets=train_targets,
-                lr=cfg.optim.lr,
-                n_steps=cfg.optim.n_steps,
-                progress_bar=cfg.optim.progress_bar,
-            )
-
-            df_out = predict(
-                gp=gp,
-                likelihood=likelihood,
-                test_inputs=test_inputs,
-                test_targets=test_targets,
-                test_fold=test_fold,
-                test_idx=test_idx,
-                df_out=df_out,
-            )
-
-        spearman = df_out["y"].corr(df_out["y_pred"], "spearman")
-        print(f"Spearman: {spearman:.3f} (DMS ID: {DMS_id})")
-
-        out_path = (
-            Path(cfg.data.paths.output_folder) / cfg.cv_scheme / cfg.kernel.name / f"{DMS_id}.csv"
+        gp, likelihood = instantiate_gp(
+            cfg=cfg, train_inputs=train_inputs, train_targets=train_targets, gp_inputs=gp_inputs
         )
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        df_out.to_csv(out_path, index=False)
 
-    except Exception as e:
-        print(f"Error: {e} (DMS ID: {DMS_id})")
+        gp, likelihood = optimize_gp(
+            gp=gp,
+            likelihood=likelihood,
+            train_inputs=train_inputs,
+            train_targets=train_targets,
+            lr=cfg.optim.lr,
+            n_steps=cfg.optim.n_steps,
+            progress_bar=cfg.optim.progress_bar,
+        )
 
+        df_out = predict(
+            gp=gp,
+            likelihood=likelihood,
+            test_inputs=test_inputs,
+            test_targets=test_targets,
+            test_fold=test_fold,
+            test_idx=test_idx,
+            df_out=df_out,
+        )
+
+    spearman = df_out["y"].corr(df_out["y_pred"], "spearman")
+    print(f"Spearman: {spearman:.3f} (DMS ID: {DMS_id})")
+
+    out_path = (
+        Path(cfg.data.paths.output_folder) / cfg.cv_scheme / cfg.kernel.name / f"{DMS_id}.csv"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(out_path, index=False)
 
 @hydra.main(
     version_base=None,

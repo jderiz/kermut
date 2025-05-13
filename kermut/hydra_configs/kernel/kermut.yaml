@@ -1,5 +1,6 @@
 name: kermut
 
+use_svi: true
 composition: weighted_sum
 structure_kernel:
   _target_: kermut.kernels.StructureKernel

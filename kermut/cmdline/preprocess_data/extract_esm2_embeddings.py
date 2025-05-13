@@ -16,6 +16,7 @@ import argparse
 
 torch.serialization.add_safe_globals([argparse.Namespace])
 
+
 def _filter_datasets(cfg: DictConfig, embedding_dir: Path) -> pd.DataFrame:
     df_ref = pd.read_csv(cfg.data.paths.reference_file)
     match cfg.dataset:
@@ -120,6 +121,7 @@ def extract_esm2_embeddings(cfg: DictConfig) -> None:
             "mutants": mutants,
         }
         print(embeddings_dict.keys())
+        print(f"Generated {len(all_representations)} embeddings")
 
         # Store data as HDF5
         with h5py.File(embedding_dir / f"{DMS_id}.h5", "w") as h5f:

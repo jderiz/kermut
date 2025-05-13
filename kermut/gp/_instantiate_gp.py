@@ -48,6 +48,7 @@ def instantiate_gp(
     composite = cfg.kernel.use_structure_kernel and cfg.kernel.use_sequence_kernel
     train_inputs = tuple([x for x in train_inputs if x is not None])
 
+        
     gp = KermutGP(
         train_inputs,
         train_targets,

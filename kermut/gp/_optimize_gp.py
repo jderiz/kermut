@@ -53,6 +53,12 @@ def optimize_gp(
     x_train = tuple([x for x in train_inputs if x is not None])
     y_train = train_targets
 
+    print("x_train tuple length: ", len(x_train))
+    print("x_train[0] shape: ", x_train[0].shape)
+    print("x_train[1] shape: ", x_train[1].shape)
+    print("x_train[2] shape: ", x_train[2].shape)
+    print("y_train shape: ", y_train.shape)
+
     for _ in trange(n_steps, disable=not progress_bar):
         optimizer.zero_grad()
         output = gp(*x_train)

@@ -31,7 +31,7 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
     if not cfg.kernel.use_sequence_kernel:
         return None
 
-    if cfg.cv_scheme in ["fold_rand_multiples", "domain", "full"]:
+    if cfg.data.embedding.mode == "multiples":
         embedding_path = Path(cfg.data.paths.embeddings_multiples) / f"{DMS_id}.h5"
     else:
         embedding_path = Path(cfg.data.paths.embeddings_singles) / f"{DMS_id}.h5"
@@ -45,9 +45,9 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
         try:
             print(f"Loading embeddings from {embedding_path}")
             with h5py.File(embedding_path, "r", locking=True) as h5f:
-                embeddings = torch.tensor(h5f["embeddings"][1:]).float()
+                embeddings = torch.tensor(h5f["embeddings"][:]).float()  # Load all embeddings
                 print(h5f.keys())
-                mutants = [x.decode("utf-8") for x in h5f["mutants"][1:]]
+                mutants = [x.decode("utf-8") for x in h5f["mutants"][:]]  # Load all mutants
             break
         except OSError:
             tries += 1
@@ -60,7 +60,7 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
 
     # Create a mapping from mutant to index in the embeddings array
     mutant_to_idx = {mut: idx for idx, mut in enumerate(mutants)}
-    
+
     # Get indices for mutants that exist in both the dataset and embeddings
     valid_indices = []
     for mut in df["mutant"].tolist():
@@ -68,10 +68,11 @@ def _load_embeddings(cfg: DictConfig, df: pd.DataFrame, DMS_id: str) -> Union[to
             valid_indices.append(mutant_to_idx[mut])
         else:
             print(f"Warning: Mutant {mut} not found in embeddings")
-    
+
     # Filter embeddings using valid indices
     embeddings = embeddings[valid_indices]
-    
+    print("Final embeddings shape:", embeddings.shape)
+
     return embeddings
 
 
@@ -87,8 +88,14 @@ def _tokenize_data(cfg: DictConfig, df: pd.DataFrame) -> torch.Tensor:
 def prepare_GP_inputs(
     cfg: DictConfig, DMS_id: str
 ) -> Tuple[pd.DataFrame, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    df = pd.read_csv(Path(cfg.data.paths.DMS_input_folder) / f"{DMS_id}.csv")
+    subfolder = (
+        "cv_folds_singles_substitutions"
+        if cfg.data.embedding.mode == "singles"
+        else "cv_folds_multiples_substitutions"
+    )
+    df = pd.read_csv(Path(cfg.data.paths.DMS_input_folder) / subfolder / f"{DMS_id}.csv")
 
+    # Now prepare all tensors with the filtered dataframe
     y = torch.tensor(df[cfg.data.target_col].values, dtype=torch.float32)
     x_toks = _tokenize_data(cfg, df)
     x_zero_shot = _load_zero_shot(cfg, df, DMS_id)
